@@ -1,5 +1,5 @@
 import React from "react";
-import Results from "./ResultsAPI2"
+import Results from "./ResultsAPI3"
 import Footer from './Footer'
 
 export default function Main() {    

@@ -12,6 +12,7 @@ export default function Footer(props) {
         <div className="footer--text">
             <p>{`${wordSum} woorden gevonden - powered by mijnwoordenboek.nl`}</p>
             <p>{`v${versionInfo.commit} (${versionInfo.date})`}</p>
+            <p>{versionInfo.message}</p>
         </div>
         
     )
