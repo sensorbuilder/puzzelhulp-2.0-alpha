@@ -1,0 +1,151 @@
+const baseURL = 'https://www.mijnwoordenboek.nl/puzzelwoordenboek/';
+
+function extractWords(htmlText, searchword) {
+  // Use regex to extract text from <div>...</div> pattern
+  const divPattern = /<div[^>]*>([\s\S]*?)<\/div>/gi;
+  const solutionArr = [];
+  let match;
+
+  while ((match = divPattern.exec(htmlText)) !== null) {
+    let woord = match[1].trim();
+    
+    // Remove any inner HTML tags
+    woord = woord.replace(/<[^>]+>/g, '').trim();
+    
+    // Filter out unwanted entries
+    if (!woord || woord.includes(' letters') || woord.includes('\n') || woord.startsWith(`${searchword.toUpperCase()} `)) {
+      continue;
+    }
+    
+    const a = woord.split(' (')[0].trim();
+    if (!a) continue;
+    
+    const letters = a.includes(' ') ? a.length - 1 : a.length;
+    const i = solutionArr.findIndex(e => e.letters === letters);
+    
+    if (i > -1) {
+      if (!solutionArr[i].woorden.includes(a)) {
+        solutionArr[i].woorden.push(a);
+      }
+    } else {
+      solutionArr.push({ letters, woorden: [a] });
+    }
+  }
+
+  // Sort by letter count
+  solutionArr.sort((a, b) => a.letters - b.letters);
+  return solutionArr;
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    
+    // CORS headers for browser requests
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Content-Type': 'application/json'
+    };
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    try {
+      // GET request: retrieve cached solution or fetch & parse
+      if (request.method === 'GET') {
+        const searchword = url.searchParams.get('searchword');
+        
+        if (!searchword) {
+          return new Response(
+            JSON.stringify({ error: 'searchword parameter is required' }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        // Try to get from cache
+        const cached = await env.ph_binding.get(searchword);
+        
+        if (cached) {
+          return new Response(
+            JSON.stringify({ found: true, solution: cached, source: 'cache' }),
+            { headers: corsHeaders }
+          );
+        }
+
+        // Cache miss: fetch and parse HTML
+        try {
+          const htmlResponse = await fetch(`${baseURL}${encodeURIComponent(searchword)}/1/1`);
+          
+          if (!htmlResponse.ok) {
+            return new Response(
+              JSON.stringify({ error: 'Failed to fetch from source', status: htmlResponse.status }),
+              { status: 502, headers: corsHeaders }
+            );
+          }
+
+          const htmlText = await htmlResponse.text();
+          const solutionArr = extractWords(htmlText, searchword);
+
+          // Cache the result
+          if (solutionArr.length > 0) {
+            const solutionStr = JSON.stringify(solutionArr);
+            await env.ph_binding.put(searchword, solutionStr);
+            
+            return new Response(
+              JSON.stringify({ found: true, solution: solutionStr, source: 'web' }),
+              { headers: corsHeaders }
+            );
+          } else {
+            return new Response(
+              JSON.stringify({ found: false, solution: null, source: 'web' }),
+              { headers: corsHeaders }
+            );
+          }
+        } catch (fetchError) {
+          console.error('Fetch error:', fetchError);
+          return new Response(
+            JSON.stringify({ error: 'Failed to fetch from source', message: fetchError.message }),
+            { status: 502, headers: corsHeaders }
+          );
+        }
+      }
+
+      // POST request: manually cache solution (optional, for backwards compatibility)
+      if (request.method === 'POST') {
+        const body = await request.json();
+        const { searchword, solution } = body;
+
+        if (!searchword || !solution) {
+          return new Response(
+            JSON.stringify({ error: 'searchword and solution are required' }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        await env.ph_binding.put(searchword, solution);
+
+        return new Response(
+          JSON.stringify({ success: true, message: 'Solution cached successfully' }),
+          { headers: corsHeaders }
+        );
+      }
+
+      // Invalid method
+      return new Response(
+        JSON.stringify({ error: 'Method not allowed' }),
+        { status: 405, headers: corsHeaders }
+      );
+
+    } catch (error) {
+      console.error('Worker error:', error);
+      return new Response(
+        JSON.stringify({ error: 'Internal server error', message: error.message }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+  }
+};

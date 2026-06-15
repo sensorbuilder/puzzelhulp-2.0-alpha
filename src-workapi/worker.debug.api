@@ -1,0 +1,67 @@
+const baseURL = 'https://www.mijnwoordenboek.nl/puzzelwoordenboek/';
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Content-Type': 'text/html'
+    };
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    const searchword = url.searchParams.get('searchword');
+    if (!searchword) {
+      return new Response(
+        JSON.stringify({ error: 'searchword parameter is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+      );
+    }
+
+    try {
+      const htmlResponse = await fetch(`${baseURL}${encodeURIComponent(searchword)}/1/1`);
+      if (!htmlResponse.ok) {
+        return new Response(
+          JSON.stringify({ error: 'Failed to fetch from source', status: htmlResponse.status }),
+          { status: 502, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+        );
+      }
+
+      const htmlText = await htmlResponse.text();
+
+      // If caller requested extraction, return matched div texts as JSON
+      const useSelector = url.searchParams.get('selector') === 'true' || url.searchParams.get('extract') === 'true';
+      if (useSelector) {
+        // Try to focus on tbody first, fall back to whole HTML
+        const tbodyMatch = htmlText.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+        const hay = tbodyMatch ? tbodyMatch[1] : htmlText;
+        const tdDivPattern = /<td[^>]*>[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>[\s\S]*?<\/td>/gi;
+        const fragments = [];
+        let m;
+        while ((m = tdDivPattern.exec(hay)) !== null) {
+          // strip inner tags and whitespace
+          let woord = m[1].replace(/<[^>]+>/g, '').trim();
+          if (!woord || woord.includes(' letters') || woord.includes('\n') || woord.startsWith(`${searchword.toUpperCase()} `)) continue;
+          const a = woord.split(' (')[0].trim();
+          if (!a) continue;
+          fragments.push(a);
+        }
+
+        return new Response(JSON.stringify({ fragments }), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
+
+      // Default: Return the raw captured HTML so you can debug selectors/rewriter
+      return new Response(htmlText, { status: 200, headers: corsHeaders });
+    } catch (err) {
+      return new Response(
+        JSON.stringify({ error: 'Fetch error', message: err.message }),
+        { status: 502, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+      );
+    }
+  }
+};
