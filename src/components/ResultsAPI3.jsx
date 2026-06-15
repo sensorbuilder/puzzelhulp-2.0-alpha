@@ -2,7 +2,7 @@ import React from "react";
 
 //const baseURL = 'https://www.mijnwoordenboek.nl/puzzelwoordenboek/';
 //const selector2 = 'body > div.main-holder > div > div > div > div > div > div.span8.right > div > div:nth-child(n) > table > tbody > tr:nth-child(n) > td > div:nth-child(n)';
-const kvURL = 'https://worker-kv-api.0nu2sngw3778.workers.dev/';
+const kvURL = 'puzzelhulp-worker.0nu2sngw3778.workers.dev';
 
 export default function Results(props) {
     const { searchword, solution, setSolution } = props;
